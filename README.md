@@ -1,16 +1,29 @@
-# UGREEN AX900 USB WiFi Adapter Setup Guide for Linux
+# AIC8800D80 Linux Driver
 
 ## Overview
 
-This guide provides a complete solution for getting the UGREEN AX900 USB WiFi 6 adapter working on Linux systems. The adapter uses an AIC8800D80 chipset and requires specific drivers and firmware.
+This driver provides Linux support for USB WiFi 6 adapters based on the AIC8800D80 chipset, including the UGREEN AX900 and other devices with Vendor ID `368B`.
 
-## Hardware Information
+## Supported Devices
+
+- **UGREEN AX900 USB WiFi 6 Adapter** (requires device ID modification)
+- Tenda U11 and AX913B
+- Other devices with Vendor ID `368B` (AIC_V2)
+
+## Hardware Information - UGREEN AX900
 
 - **Device**: UGREEN AX900 USB WiFi 6 Adapter
 - **Chipset**: AIC8800D80 (AICSemi)
 - **USB IDs**: 
   - Mass storage mode: `a69c:5724`
   - WiFi mode: `368b:8d88`
+
+## Known Limitations
+
+- **Bluetooth functionality is NOT working**
+- Tested on Linux kernels 6.1.0.27 (Debian 12), 6.8.0.51 (Linux Mint), and 6.16 (Ubuntu 25.04)
+- May require manual device ID addition for some UGREEN variants
+- Device creates interface with MAC-based naming (e.g., `wlx6c1ff779ca6c`)
 
 ## Prerequisites
 
@@ -21,27 +34,18 @@ sudo apt update
 sudo apt install -y build-essential dkms linux-headers-$(uname -r)
 ```
 
-## Solution Overview
+## Installation
 
-The UGREEN AX900 requires a two-stage setup process:
-
-1. **USB Mode Switching**: Device starts in mass storage mode and must be switched to WiFi mode
-2. **Driver Installation**: Install the specialized AIC8800D80 driver that supports the `368b:8d88` device ID
-
-## Step 1: Download the Correct Driver
-
-The key breakthrough was finding the correct driver repository that supports the UGREEN AX900's device ID:
+### Step 1: Clone Repository
 
 ```bash
-git clone https://github.com/shenmintao/aic8800d80.git
+git clone https://github.com/retteghy/aic8800d80.git
 cd aic8800d80
 ```
 
-This repository specifically supports devices with Vendor ID `368B` (including the UGREEN AX900).
+### Step 2: Install Firmware
 
-## Step 2: Install Firmware
-
-First, clean any existing AIC8800 firmware (as recommended by the driver author):
+First, clean any existing AIC8800 firmware (as recommended by the original driver author):
 
 ```bash
 sudo rm -rf /lib/firmware/aic8800*
@@ -53,7 +57,7 @@ Install the correct firmware:
 sudo cp -r fw/aic8800D80 /lib/firmware/
 ```
 
-## Step 3: Install USB Mode Switching Rules
+### Step 3: Install USB Mode Switching Rules
 
 Copy the udev rules for automatic device recognition:
 
@@ -62,7 +66,7 @@ sudo cp aic.rules /lib/udev/rules.d/
 sudo udevadm control --reload-rules
 ```
 
-## Step 4: Compile and Install the Driver
+### Step 4: Compile and Install the Driver
 
 Navigate to the driver directory and compile:
 
@@ -77,11 +81,35 @@ Install the compiled driver:
 sudo make install
 ```
 
-## Step 5: Add Support for UGREEN Device ID
+### Step 5: Load the Driver
 
-The original driver didn't include the UGREEN device ID `368b:8d88`. We need to add it manually:
+Load the driver using modprobe:
 
-### Edit the USB header file:
+```bash
+sudo modprobe aic8800_fdrv
+```
+
+## For UGREEN AX900 Users - Important Notes
+
+### USB Mode Switching Process
+
+The UGREEN AX900 implements a two-stage boot process:
+
+1. **Stage 1** (`a69c:5724`): Device appears as mass storage containing Windows drivers
+2. **Stage 2** (`368b:8d88`): After firmware loading, device switches to WiFi mode
+
+### Installation Steps Specific to UGREEN AX900
+
+1. Device will initially appear as mass storage device
+2. After driver installation and firmware loading, **unplug and replug the device**
+3. Device should automatically switch to WiFi mode
+4. If device doesn't switch modes, check udev rules installation
+
+### Device ID Support
+
+If your UGREEN AX900 isn't recognized, you may need to add the device ID manually:
+
+#### Edit the USB header file:
 
 Add the device ID definition to `aic8800_fdrv/aicwf_usb.h`:
 
@@ -89,7 +117,7 @@ Add the device ID definition to `aic8800_fdrv/aicwf_usb.h`:
 #define USB_PRODUCT_ID_AIC8800D80_UGREEN 0x8D88
 ```
 
-### Add to USB device table:
+#### Add to USB device table:
 
 In `aic8800_fdrv/aicwf_usb.c`, add the entry to the `aicwf_usb_id_table[]`:
 
@@ -97,7 +125,7 @@ In `aic8800_fdrv/aicwf_usb.c`, add the entry to the `aicwf_usb_id_table[]`:
 {USB_DEVICE(USB_VENDOR_ID_AIC_V2, USB_PRODUCT_ID_AIC8800D80_UGREEN)},
 ```
 
-### Add to device type detection:
+#### Add to device type detection:
 
 In the same file, add the device to the chip detection logic:
 
@@ -110,7 +138,7 @@ In the same file, add the device to the chip detection logic:
     || pid == USB_PRODUCT_ID_AIC8800D80_UGREEN){
 ```
 
-## Step 6: Rebuild and Install
+#### Rebuild and Install
 
 After making the modifications:
 
@@ -120,21 +148,7 @@ make
 sudo make install
 ```
 
-## Step 7: Load the Driver
-
-Load the driver using modprobe:
-
-```bash
-sudo modprobe aic8800_fdrv
-```
-
-## Step 8: Test the Device
-
-Unplug and replug the UGREEN AX900. The device should:
-
-1. Start in mass storage mode (`a69c:5724`)
-2. Automatically switch to WiFi mode (`368b:8d88`) 
-3. Create a WiFi interface (e.g., `wlx6c1ff779ca6c`)
+## Testing
 
 Verify the interface is created:
 
@@ -143,36 +157,49 @@ ip link show
 iwconfig
 ```
 
+You should see a new WiFi interface (e.g., `wlx6c1ff779ca6c`) with device identification "AIC@8800".
+
 ## Troubleshooting
 
-### Check USB device detection:
+### Device Not Recognized
+
+Check USB device status:
 ```bash
 lsusb | grep -E "(aic|368b|a69c)"
 ```
 
-### Check kernel messages:
+Check kernel messages:
 ```bash
 dmesg | tail -20
 ```
 
-### Verify driver is loaded:
+Verify driver is loaded:
 ```bash
 lsmod | grep aic
 ```
 
-### Check for firmware loading errors:
+### Firmware Loading Issues
+
+Check for firmware loading errors:
 ```bash
 dmesg | grep -i firmware
 ```
 
-## Key Technical Details
+Verify firmware files exist:
+```bash
+ls -la /lib/firmware/aic8800D80/
+```
 
-### USB Mode Switching Process
+Check firmware path issues:
+```bash
+dmesg | grep "firmware path"
+```
 
-The UGREEN AX900 implements a two-stage boot process:
+### Common Issues
 
-1. **Stage 1** (`a69c:5724`): Device appears as mass storage containing Windows drivers
-2. **Stage 2** (`368b:8d88`): After firmware loading, device switches to WiFi mode
+1. **Device stays in mass storage mode**: Check udev rules installation and try unplugging/replugging
+2. **Driver probe fails**: Verify firmware is in correct location and device ID is supported
+3. **Interface not created**: Check dmesg for error messages and ensure driver recognizes device ID
 
 ### Firmware Loading Sequence
 
@@ -182,26 +209,47 @@ The driver loads firmware in this order:
 3. `fw_patch_8800d80_u02_ext0.bin`
 4. `fmacfw_8800d80_u02.bin`
 
-### Driver Source Information
+## Technical Details
 
-- **Repository**: https://github.com/shenmintao/aic8800d80
-- **Author Note**: "I did not develop this software... I only made some modifications to the code to adapt it to newer kernel versions"
-- **Tested On**: Linux kernel 6.16 (Ubuntu 25.04) and 6.1.0.27 (Debian 12)
-- **Known Issue**: Bluetooth functionality not working
+### Kernel Compatibility
+
+- Compatible with kernels 3.10-6.8
+- May require modifications for kernels 6.9+
+- Tested extensively on Ubuntu 25.04, Debian 12, and Linux Mint
+
+### Driver Architecture
+
+This driver is based on the original AIC8800 driver with modifications for:
+- USB device ID support for Vendor ID `368B`
+- Kernel compatibility improvements
+- UGREEN-specific device handling
+
+## Contributing
+
+When reporting issues, please include:
+- Your specific hardware model and USB ID
+- Linux distribution and kernel version
+- Complete dmesg output
+- Steps you've already tried
 
 ## Credits
 
-- Driver source: https://github.com/shenmintao/aic8800d80
-- Original AIC8800 driver development by AICSemi
-- Community modifications for Linux kernel compatibility
+- **Original driver source**: https://github.com/shenmintao/aic8800d80
+- **Author note**: "I did not develop this software... I only made some modifications to the code to adapt it to newer kernel versions"
+- **Original AIC8800 driver**: Developed by AICSemi
+- **Community contributions**: Linux kernel compatibility improvements
+
+## License
+
+This driver is provided as-is for educational and development purposes. Please refer to the original source repository for licensing information.
 
 ## Final Result
 
-After successful installation, the UGREEN AX900 will appear as a working WiFi interface with:
+After successful installation, supported devices will appear as working WiFi interfaces with:
 
-- **Interface name**: (MAC-based naming)
+- **Interface name**: MAC-based naming (e.g., `wlx6c1ff779ca6c`)
 - **Device identification**: "AIC@8800"
 - **Full WiFi 6 functionality**: Ready for network connections
-- **Automatic recognition**: Works immediately after plugging in
+- **Automatic recognition**: Works immediately after plugging in (after initial setup)
 
-The adapter is now fully functional and ready for use with standard Linux WiFi management tools.
+The adapter is fully functional and ready for use with standard Linux WiFi management tools like NetworkManager, wpa_supplicant, and iw/iwconfig.
