@@ -1,133 +1,85 @@
-# AIC8800D80 Linux Driver
+# AIC8800D80 Linux Driver for UGREEN USB WiFi Adapters
 
 ## Overview
 
-This driver provides Linux support for USB WiFi 6 adapters based on the AIC8800D80 chipset, including the UGREEN AX900 and other devices with Vendor ID `368B`.
+Complete installation guide for AIC8800D80-based USB WiFi 6 adapters, specifically tested with UGREEN devices. This driver provides full WiFi functionality on Linux systems.
 
 ## Supported Devices
 
-- **UGREEN AX900 USB WiFi 6 Adapter** (requires device ID modification)
-- Tenda U11 and AX913B
-- Other devices with Vendor ID `368B` (AIC_V2)
+- **UGREEN AX900 USB WiFi 6 Adapter**
+- **UGREEN devices with USB ID**: `368b:8d88` (WiFi mode), `a69c:5724` (mass storage mode)
+- Other AIC8800D80-based adapters
 
-## Hardware Information - UGREEN AX900
+## Hardware Information
 
-- **Device**: UGREEN AX900 USB WiFi 6 Adapter
 - **Chipset**: AIC8800D80 (AICSemi)
-- **USB IDs**: 
-  - Mass storage mode: `a69c:5724`
-  - WiFi mode: `368b:8d88`
-
-## Known Limitations
-
-- **Bluetooth functionality is NOT working**
-- Tested on Linux kernels 6.1.0.27 (Debian 12), 6.8.0.51 (Linux Mint), and 6.16 (Ubuntu 25.04)
-- May require manual device ID addition for some UGREEN variants
-- Device creates interface with MAC-based naming (e.g., `wlx6c1ff779ca6c`)
+- **USB Mode Switching**: Device appears as mass storage first, then switches to WiFi mode
+- **Interface Naming**: Creates MAC-based interface names (e.g., `wlx6c1ff779ca6c`)
 
 ## Prerequisites
 
-Install the required build tools and kernel headers:
+Install required build tools and kernel headers:
 
 ```bash
 sudo apt update
 sudo apt install -y build-essential dkms linux-headers-$(uname -r)
 ```
 
-## Installation
+## Complete Installation Guide
 
 ### Step 1: Clone Repository
 
 ```bash
-git clone https://github.com/retteghy/aic8800d80.git
+git clone https://github.com/shenmintao/aic8800d80.git
 cd aic8800d80
 ```
 
 ### Step 2: Install Firmware
 
-First, clean any existing AIC8800 firmware (as recommended by the original driver author):
-
+Clean any existing AIC8800 firmware:
 ```bash
 sudo rm -rf /lib/firmware/aic8800*
 ```
 
 Install the correct firmware:
-
 ```bash
-sudo cp -r fw/aic8800D80 /lib/firmware/
+sudo cp -r firmwares/aic8800D80 /lib/firmware/
 ```
 
 ### Step 3: Install USB Mode Switching Rules
 
-Copy the udev rules for automatic device recognition:
-
 ```bash
-sudo cp aic.rules /lib/udev/rules.d/
+sudo cp 50-usb-realtek-net.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules
 ```
 
-### Step 4: Compile and Install the Driver
+### Step 4: Add UGREEN Device ID Support
 
-Navigate to the driver directory and compile:
+**CRITICAL STEP**: UGREEN devices require manual device ID addition to work.
 
-```bash
-cd drivers/aic8800
-make
-```
+#### Edit USB Header File
 
-Install the compiled driver:
-
-```bash
-sudo make install
-```
-
-### Step 5: Load the Driver
-
-Load the driver using modprobe:
-
-```bash
-sudo modprobe aic8800_fdrv
-```
-
-## For UGREEN AX900 Users - Important Notes
-
-### USB Mode Switching Process
-
-The UGREEN AX900 implements a two-stage boot process:
-
-1. **Stage 1** (`a69c:5724`): Device appears as mass storage containing Windows drivers
-2. **Stage 2** (`368b:8d88`): After firmware loading, device switches to WiFi mode
-
-### Installation Steps Specific to UGREEN AX900
-
-1. Device will initially appear as mass storage device
-2. After driver installation and firmware loading, **unplug and replug the device**
-3. Device should automatically switch to WiFi mode
-4. If device doesn't switch modes, check udev rules installation
-
-### Device ID Support
-
-If your UGREEN AX900 isn't recognized, you may need to add the device ID manually:
-
-#### Edit the USB header file:
-
-Add the device ID definition to `aic8800_fdrv/aicwf_usb.h`:
+Edit `drivers/aic8800/aic8800_fdrv/aicwf_usb.h` and add this line after line 50:
 
 ```c
 #define USB_PRODUCT_ID_AIC8800D80_UGREEN 0x8D88
 ```
 
-#### Add to USB device table:
+The line should be added after `#define USB_PRODUCT_ID_AIC8800M80_CUS6  0x8D8C`.
 
-In `aic8800_fdrv/aicwf_usb.c`, add the entry to the `aicwf_usb_id_table[]`:
+#### Add to USB Device Table
+
+Edit `drivers/aic8800/aic8800_fdrv/aicwf_usb.c` and add this line to the `aicwf_usb_id_table[]` around line 2671:
 
 ```c
 {USB_DEVICE(USB_VENDOR_ID_AIC_V2, USB_PRODUCT_ID_AIC8800D80_UGREEN)},
 ```
 
-#### Add to device type detection:
+Add this line before the `#endif` in the USB device table.
 
-In the same file, add the device to the chip detection logic:
+#### Add to Device Detection Logic
+
+In the same file, find the chip detection logic around line 2350-2354 and add `|| pid == USB_PRODUCT_ID_AIC8800D80_UGREEN` to the existing condition:
 
 ```c
 }else if(pid == USB_PRODUCT_ID_AIC8800D81 || pid == USB_PRODUCT_ID_AIC8800D41
@@ -138,118 +90,144 @@ In the same file, add the device to the chip detection logic:
     || pid == USB_PRODUCT_ID_AIC8800D80_UGREEN){
 ```
 
-#### Rebuild and Install
+### Step 5: Compile and Install Driver
 
-After making the modifications:
+Navigate to the driver directory:
+```bash
+cd drivers/aic8800
+```
 
+Compile the driver:
 ```bash
 make clean
 make
+```
+
+Install the driver:
+```bash
 sudo make install
 ```
 
-## Testing
-
-Verify the interface is created:
+### Step 6: Load Driver Modules
 
 ```bash
-ip link show
-iwconfig
+sudo modprobe aic_load_fw
+sudo modprobe aic8800_fdrv
 ```
 
-You should see a new WiFi interface (e.g., `wlx6c1ff779ca6c`) with device identification "AIC@8800".
+### Step 7: Connect and Test Device
+
+1. Plug in the UGREEN USB WiFi adapter
+2. The device will initially appear as mass storage (`a69c:5724`)
+3. After a few seconds, it should automatically switch to WiFi mode (`368b:8d88`)
+4. Check that the device is recognized:
+
+```bash
+lsusb | grep "368b:8d88"
+```
+
+You should see:
+```
+Bus XXX Device XXX: ID 368b:8d88 AICSemi AIC 8800D80
+```
+
+5. Verify the WiFi interface is created:
+
+```bash
+ip link show | grep wlx
+```
+
+You should see a new WiFi interface like `wlx6c1ff779ca6c`.
+
+6. Test WiFi scanning:
+
+```bash
+sudo iwlist scan | head -10
+```
+
+## What to Avoid
+
+- **Do not attempt manual device binding** without adding device ID to source code first
+- **Do not skip the device ID addition step** - UGREEN devices will not work without it
+- **Do not mix different AIC8800 firmware versions** - clean old firmware first
 
 ## Troubleshooting
 
-### Device Not Recognized
+### Device Not Switching Modes
 
-Check USB device status:
+Check if udev rules are properly installed:
 ```bash
-lsusb | grep -E "(aic|368b|a69c)"
+ls -la /etc/udev/rules.d/50-usb-realtek-net.rules
 ```
+
+Reload udev rules:
+```bash
+sudo udevadm control --reload-rules
+```
+
+Unplug and replug the device.
+
+### Driver Not Recognizing Device
+
+Verify device ID was added to all three locations in the source code:
+1. Header file (`aicwf_usb.h`)
+2. USB device table (`aicwf_usb.c`)
+3. Chip detection logic (`aicwf_usb.c`)
+
+Rebuild and reinstall the driver after making changes.
+
+### No WiFi Interface Created
 
 Check kernel messages:
 ```bash
 dmesg | tail -20
 ```
 
-Verify driver is loaded:
+Verify driver modules are loaded:
 ```bash
 lsmod | grep aic
 ```
 
-### Firmware Loading Issues
-
-Check for firmware loading errors:
-```bash
-dmesg | grep -i firmware
-```
-
-Verify firmware files exist:
+Check firmware files exist:
 ```bash
 ls -la /lib/firmware/aic8800D80/
 ```
 
-Check firmware path issues:
+### Firmware Loading Issues
+
+Verify firmware path in kernel messages:
 ```bash
-dmesg | grep "firmware path"
+dmesg | grep -i firmware
 ```
 
-### Common Issues
+Ensure firmware files have correct permissions:
+```bash
+sudo chmod -R 644 /lib/firmware/aic8800D80/
+```
 
-1. **Device stays in mass storage mode**: Check udev rules installation and try unplugging/replugging
-2. **Driver probe fails**: Verify firmware is in correct location and device ID is supported
-3. **Interface not created**: Check dmesg for error messages and ensure driver recognizes device ID
+## Testing WiFi Functionality
 
-### Firmware Loading Sequence
+After successful installation:
 
-The driver loads firmware in this order:
-1. `fw_patch_table_8800d80_u02.bin`
-2. `fw_patch_8800d80_u02.bin` 
-3. `fw_patch_8800d80_u02_ext0.bin`
-4. `fmacfw_8800d80_u02.bin`
+1. **Check interface**: `ip link show`
+2. **Scan networks**: `sudo iwlist wlx[TAB] scan`
+3. **Connect to network**: Use NetworkManager or wpa_supplicant
 
-## Technical Details
+The adapter supports full WiFi 6 functionality and works with standard Linux WiFi management tools.
 
-### Kernel Compatibility
+## Technical Notes
 
-- Compatible with kernels 3.10-6.8
-- May require modifications for kernels 6.9+
-- Tested extensively on Ubuntu 25.04, Debian 12, and Linux Mint
-
-### Driver Architecture
-
-This driver is based on the original AIC8800 driver with modifications for:
-- USB device ID support for Vendor ID `368B`
-- Kernel compatibility improvements
-- UGREEN-specific device handling
-
-## Contributing
-
-When reporting issues, please include:
-- Your specific hardware model and USB ID
-- Linux distribution and kernel version
-- Complete dmesg output
-- Steps you've already tried
+- **Kernel Compatibility**: Tested on kernels 6.1-6.8
+- **Device Naming**: Interface uses MAC-based naming (e.g., `wlx6c1ff779ca6c`)
+- **Bluetooth**: Not supported with this driver
+- **Performance**: Full WiFi 6 speeds supported
 
 ## Credits
 
-- **Original driver source**: https://github.com/shenmintao/aic8800d80
-- **Author note**: "I did not develop this software... I only made some modifications to the code to adapt it to newer kernel versions"
-- **Original AIC8800 driver**: Developed by AICSemi
-- **Community contributions**: Linux kernel compatibility improvements
+- **Original driver**: https://github.com/shenmintao/aic8800d80
+- **Hardware**: AICSemi AIC8800D80 chipset
+- **Testing**: UGREEN AX900 USB WiFi 6 adapter on Linux 6.8.0-71-generic
 
 ## License
 
-This driver is provided as-is for educational and development purposes. Please refer to the original source repository for licensing information.
-
-## Final Result
-
-After successful installation, supported devices will appear as working WiFi interfaces with:
-
-- **Interface name**: MAC-based naming (e.g., `wlx6c1ff779ca6c`)
-- **Device identification**: "AIC@8800"
-- **Full WiFi 6 functionality**: Ready for network connections
-- **Automatic recognition**: Works immediately after plugging in (after initial setup)
-
-The adapter is fully functional and ready for use with standard Linux WiFi management tools like NetworkManager, wpa_supplicant, and iw/iwconfig.
+Refer to the original repository for licensing information. This guide is provided for educational purposes.
